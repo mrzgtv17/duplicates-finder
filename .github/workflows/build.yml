@@ -1,0 +1,112 @@
+name: Сборка и релиз
+
+# • PR в main:     тесты + сборка .app и .exe (файлы можно скачать в разделе Artifacts и проверить)
+# • слияние в main: то же самое + если APP_VERSION новая — публикуется релиз v<версия>,
+#                   из которого программа сама обновляется у пользователей.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Тесты
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - name: Проверка кода
+        run: ruff check .
+      - name: Тесты
+        run: pytest -q
+      - name: Проверка версии
+        if: github.event_name == 'pull_request'
+        run: python scripts/check_version.py --base origin/${{ github.base_ref }}
+
+  build-macos:
+    name: Сборка для Mac
+    needs: test
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyinstaller
+      - name: Проверка tkinter
+        run: python -c "import tkinter; print('Tk', tkinter.TkVersion)"
+      - run: bash scripts/build_macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DuplicatesFinder-macOS
+          path: dist/DuplicatesFinder-macOS.zip
+          if-no-files-found: error
+
+  build-windows:
+    name: Сборка для Windows
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyinstaller
+      - run: bash scripts/build_windows.sh
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DuplicatesFinder-Windows
+          path: dist/DuplicatesFinder-Windows.exe
+          if-no-files-found: error
+
+  release:
+    name: Публикация релиза
+    needs: [build-macos, build-windows]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Версия
+        id: v
+        run: |
+          V=$(python3 scripts/get_version.py)
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if gh release view "v$V" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Релиз v$V уже существует — новый не публикуется."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v4
+        if: steps.v.outputs.exists == 'false'
+        with:
+          path: release
+          merge-multiple: true
+      - name: Публикация
+        if: steps.v.outputs.exists == 'false'
+        run: |
+          V=${{ steps.v.outputs.version }}
+          cd release
+          sha256sum DuplicatesFinder-macOS.zip DuplicatesFinder-Windows.exe > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          (cd .. && python3 scripts/release_notes.py "$V") > notes.md
+          gh release create "v$V" \
+            DuplicatesFinder-macOS.zip DuplicatesFinder-Windows.exe SHA256SUMS.txt \
+            --title "Версия $V" --notes-file notes.md --target "$GITHUB_SHA"
