@@ -59,3 +59,11 @@ def test_download_update_requires_sums(monkeypatch):
     rel = {"version": "9", "assets": {updater.MAC_ASSET: "u"}}
     with pytest.raises(updater.UpdateError, match="контрольных сумм"):
         updater.download_update(rel)
+
+
+def test_clean_environment():
+    env = updater.clean_environment({
+        "PATH": "C:\\Windows", "_PYI_APPLICATION_HOME_DIR": "C:\\Temp\\_MEI1",
+        "_PYI_ARCHIVE_FILE": "x.exe", "_MEIPASS2": "C:\\Temp\\_MEI1",
+        "TCL_LIBRARY": "C:\\Temp\\_MEI1\\_tcl_data", "TK_LIBRARY": "C:\\Temp\\_MEI1\\_tk_data"})
+    assert env == {"PATH": "C:\\Windows", "PYINSTALLER_RESET_ENVIRONMENT": "1"}
