@@ -50,6 +50,12 @@ jobs:
       - name: Проверка tkinter
         run: python -c "import tkinter; print('Tk', tkinter.TkVersion)"
       - run: bash scripts/build_macos.sh
+      - name: Проверка собранного приложения (Tcl/Tk)
+        timeout-minutes: 3
+        run: |
+          "dist/Поиск дубликатов.app/Contents/MacOS/DuplicatesFinder" --self-test "$RUNNER_TEMP/selftest.txt" || true
+          cat "$RUNNER_TEMP/selftest.txt"; echo
+          grep -qx ok "$RUNNER_TEMP/selftest.txt"
       - uses: actions/upload-artifact@v7
         with:
           name: DuplicatesFinder-macOS
@@ -68,6 +74,25 @@ jobs:
       - run: pip install pyinstaller
       - run: bash scripts/build_windows.sh
         shell: bash
+      - name: Проверка собранной программы (Tcl/Tk)
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP "selftest.txt"
+          Start-Process -FilePath dist\DuplicatesFinder-Windows.exe -ArgumentList "--self-test", "`"$out`"" -Wait
+          Get-Content $out
+          if ((Get-Content $out) -ne "ok") { exit 1 }
+      - name: Проверка перезапуска, как после обновления
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP "restart.txt"
+          Start-Process -FilePath dist\DuplicatesFinder-Windows.exe -ArgumentList "--self-test-restart", "`"$out`"" -Wait
+          for ($i = 0; $i -lt 60 -and -not (Test-Path $out); $i++) { Start-Sleep -Seconds 1 }
+          if (-not (Test-Path $out)) { Write-Host "Копия программы не ответила"; exit 1 }
+          Start-Sleep -Seconds 1
+          Get-Content $out
+          if ((Get-Content $out) -ne "ok") { exit 1 }
       - uses: actions/upload-artifact@v7
         with:
           name: DuplicatesFinder-Windows

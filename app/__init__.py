@@ -4,7 +4,7 @@
 #   1.2.0 -> 1.2.1  исправление ошибок
 #   1.2.0 -> 1.3.0  новая функция
 # После слияния PR в main GitHub сам соберёт .app и .exe и опубликует релиз v<версия>.
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.2"
 
 APP_NAME = "Поиск дубликатов"
 GITHUB_REPO = "mrzgtv17/duplicates-finder"

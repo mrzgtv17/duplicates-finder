@@ -196,6 +196,22 @@ def download_update(release, progress=None):
     return dest
 
 
+_FROZEN_ENV_VARS = ("TCL_LIBRARY", "TK_LIBRARY", "TCLLIBPATH", "_MEIPASS2", "PYTHONHOME", "PYTHONPATH")
+
+
+def clean_environment(env=None):
+    """Окружение для запуска новой копии программы, собранной PyInstaller.
+
+    Убирает служебные переменные текущего процесса (_PYI_*, _MEIPASS2, пути к Tcl/Tk)
+    и просит загрузчик PyInstaller начать с чистого листа."""
+    env = dict(os.environ if env is None else env)
+    for key in list(env):
+        if key.upper().startswith("_PYI_") or key.upper() in _FROZEN_ENV_VARS:
+            del env[key]
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return env
+
+
 def install_and_restart(downloaded):
     """Заменяет программу скачанной версией и запускает её. Текущий процесс завершается."""
     if sys.platform.startswith("win"):
@@ -210,7 +226,12 @@ def install_and_restart(downloaded):
             if not os.path.exists(exe) and os.path.exists(old):
                 os.replace(old, exe)
             raise UpdateError(f"Не удалось заменить программу: {e}")
-        subprocess.Popen([exe], close_fds=True)
+        # Новая версия должна стартовать как самостоятельная программа: без «чистого»
+        # окружения она решит, что она часть текущей, и будет искать свои файлы
+        # (в т.ч. Tcl/Tk) во временной папке текущей, которая удаляется при выходе.
+        flags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        subprocess.Popen([exe], env=clean_environment(), close_fds=True, creationflags=flags,
+                         cwd=os.path.dirname(exe))
         os._exit(0)
 
     if sys.platform == "darwin":
